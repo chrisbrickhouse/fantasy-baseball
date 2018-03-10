@@ -1,0 +1,8 @@
+# Ignore Dev retrosheet data
+gl*20*
+20*ev*
+*.tsv
+
+# Ignore backups
+*#
+*~
