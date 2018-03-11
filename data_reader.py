@@ -1,4 +1,5 @@
 import csv
+import numpy as np
 from math import log
 
 class Player():
@@ -24,6 +25,7 @@ class Player():
         self.on_base_perc = argv[20]
         self.slugging_perc = argv[21]
         total_bases = argv[24]
+        self._pos(argv[30])
         self.data = {
             'bpid': bpid,
             'G': games,
@@ -41,24 +43,67 @@ class Player():
             'CS': caught,
             'RBI': rbi,
         }
+        self.sim_data = []
+        self.sim_wins = 0.0
+        self.sim_plays = 0.0
 
     def points_per_game(self,scoring_rules=None):
         data = self.data
-        tb_pg = self.divide('TB')
-        r_pg = self.divide('R')
-        sb_pg = self.divide('SB')
-        cs_pg = self.divide('CS')
-        bb_pg = self.divide('BB')
-        rbi_pg = self.divide('RBI')
-        k_pg = self.divide('K')
-        points = tb_pg + r_pg + bb_pg + rbi_pg - cs_pg
-        points += (sb_pg * 2.0)
-        points += (k_pg / 2.0)
+        tbpg = self.divide('TB')
+        rpg = self.divide('R')
+        sbpg = self.divide('SB')
+        cspg = self.divide('CS')
+        bbpg = self.divide('BB')
+        rbipg = self.divide('RBI')
+        kpg = self.divide('K')
+        points = self.score(tbpg,rpg,bbpg,rbipg,cspg,sbpg,kpg)
         self.ppg = points
+
+    def score(self,tb,r,bb,rbi,cs,sb,k):
+        points = tb + r + bb + rbi - cs
+        points += (sb * 2.0)
+        points += (k / 2.0)
+        return(points)
 
     def divide(self,x,y='G'):
         result = float(self.data[x])/float(self.data[y])
         return(result)
+
+    def random_poisson(self,x,y='G',size=None):
+        div = self.divide(x,y)
+        rand = np.random.poisson(div,size)
+        return(rand)
+
+    def ppg_stats(self):
+        data = self.sim_data
+        m = np.mean(data)
+        sd = np.std(data)
+        z = 1.96
+        n = len(data)
+        ci = (z * sd) / (n**0.5)
+        self.ucb = m + ci
+        self.lcb = m - ci
+
+    def _pos(self, s):
+        eligable = s.split('/')[0]
+        positions = []
+        self.pitcher = False
+        for p in eligable:
+            if p == 'D':
+                positions.append('DH')
+            elif int(p) >= 7:
+                positions.append('OF')
+            elif int(p) == 1:
+                positions.append('P')
+                self.pitcher = True
+            elif int(p) == 2:
+                positions.append('C')
+            elif int(p) == 6:
+                positions.append('SS')
+            else:
+                pos = str(int(p) - 2)+'B'
+                positions.append(pos)
+        self.positions= positions
 
 
 class Pitcher():
@@ -74,7 +119,11 @@ class Pitcher():
         self.starts = argv[11]
         saves = argv[15]
         self.innings_pitched = str(argv[16]).split('.')
-        outs_pitched = int(innings_pitched[0])*3 + int(innings_pitched[1])
+        try:
+            outs_pitched = int(self.innings_pitched[0])*3 \
+                           +int(self.innings_pitched[1])
+        except IndexError:
+            outs_pitched = int(self.innings_pitched[0])*3
         hits_allowed = argv[17]
         self.runs_allowed = argv[18]
         earned_runs = argv[19]
@@ -98,6 +147,50 @@ class Pitcher():
             'K': strikeouts,
             'BB': walks_issued,
         }
+        self.positions = ['P']
+        self.sim_data = []
+        self.sim_plays = 0.0
+        self.sim_wins = 0.0
+
+    def points_per_game(self,scoring_rules=None):
+        data = self.data
+        opg = self.divide('OP')
+        wpg = self.divide('W')
+        lpg = self.divide('L')
+        spg = self.divide('SV')
+        kpg = self.divide('K')
+        hpg = self.divide('HA')
+        hbpg = self.divide('HB')
+        erpg = self.divide('ER')
+        bbpg = self.divide('BB')
+        points = self.score(opg,hpg,hbpg,bbpg,wpg,erpg,lpg,spg,kpg)
+        self.ppg = points
+
+    def score(self,opg,hpg,hbpg,bbpg,wpg,erpg,lpg,spg,kpg):
+        points = opg - hpg - hbpg - bbpg
+        points += 2.0 * (wpg - erpg - lpg)
+        points += 5.0 * spg
+        points += (kpg / 2.0)
+        return(points)
+
+    def divide(self,x,y='G'):
+        result = float(self.data[x])/float(self.data[y])
+        return(result)
+
+    def random_poisson(self,x,y='G',size=None):
+        div = self.divide(x,y)
+        rand = np.random.poisson(div,size)
+        return(rand)
+
+    def ppg_stats(self):
+        data = self.sim_data
+        m = np.mean(data)
+        sd = np.std(data)
+        z = 1.96
+        n = len(data)
+        ci = (z * sd) / (n**0.5)
+        self.ucb = m + ci
+        self.lcb = m - ci
 
 
 def read_file(fname,pitcher=False):
@@ -106,6 +199,8 @@ def read_file(fname,pitcher=False):
         reader = csv.reader(f)
         next(reader)  # Skip header
         for row in reader:
+            if 'LgAvg' in row[1]:
+                continue
             if pitcher:
                 p = Pitcher(*row)
             else:
