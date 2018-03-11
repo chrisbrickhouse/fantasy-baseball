@@ -6,3 +6,7 @@ gl*20*
 # Ignore backups
 *#
 *~
+
+# Ignore python files
+__pycache__
+*.pyc
